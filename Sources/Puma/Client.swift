@@ -1,7 +1,12 @@
-#if os(Linux)
-    import Glibc
-#else
+#if (os(macOS) || os(iOS))
+    import Security
     import Darwin
+#if OPENSSL
+    import KittenCTLS
+#endif
+#else
+    import KittenCTLS
+    import Glibc
 #endif
 
 import Foundation
@@ -14,37 +19,58 @@ public enum HTTPClient {
     }
 }
 
-open class SyncHTTPClient {
+class FutureHolder {
     var future = Future<Response>()
-    var responseProgress = ResponsePlaceholder()
-    var client: TCPClient!
+}
+
+open class SyncHTTPClient {
+    var futureHolder: FutureHolder
+    var client: TCPClient
     let host: String
     
-    public init(to host: String, port: UInt16 = 80) throws {
+    public init(to host: String, port: UInt16? = nil, ssl: Bool = false) throws {
         self.host = host
-        self.client = try TCPClient(hostname: host, port: port) { pointer, count in
-            self.responseProgress.parse(pointer, len: count)
-
-            if self.responseProgress.complete, let response = self.responseProgress.makeResponse() {
+        
+        var responseProgress = ResponsePlaceholder()
+        var futureHolder = FutureHolder()
+        
+        func onRead(pointer: UnsafePointer<UInt8>, count: Int) {
+            responseProgress.parse(pointer, len: count)
+            
+            if responseProgress.complete, let response = responseProgress.makeResponse() {
                 do {
-                    try self.future.complete { response }
+                    try futureHolder.future.complete { response }
                 } catch {
-                    print("Future was already completed. Please don't manually complete futures.")
+                    print("The response future was already completed. Please don't manually complete futures.")
                 }
-                self.responseProgress.empty()
+                responseProgress.empty()
             }
+        }
+        
+        self.futureHolder = futureHolder
+        
+        if ssl {
+            let client = try TCPSSLClient(hostname: host, port: port ?? 443, onRead: onRead)
+            self.client = client
+        } else {
+            self.client = try TCPClient(hostname: host, port: port ?? 80, onRead: onRead)
         }
     }
     
-    public func send(_ request: Request, for timeout: Int = 30) throws -> Response {
+    public static func send(_ request: Request, toHost host: String, atPort port: UInt16? = nil, securely ssl: Bool = false, timeoutAfter timeout: Int = 30) throws -> Response {
+        let client = try SyncHTTPClient(to: host, port: port, ssl: ssl)
+        return try client.send(request, timeoutAfter: timeout)
+    }
+    
+    public func send(_ request: Request, timeoutAfter timeout: Int = 30) throws -> Response {
         defer {
-            future = Future<Response>()
+            self.futureHolder.future = Future<Response>()
         }
         
         request.headers["Host"] = HeaderValue(host)
         
         try client.send(request)
         
-        return try future.await(for: .seconds(timeout))
+        return try self.futureHolder.future.await(for: .seconds(timeout))
     }
 }

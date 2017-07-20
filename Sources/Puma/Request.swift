@@ -14,7 +14,7 @@ extension TCPClient {
         let pointer = UnsafeMutablePointer<UInt8>.allocate(capacity: 65_536)
         defer { pointer.deallocate(capacity: 65_536) }
         
-        let signature = [UInt8](request.method.string.utf8) + [0x20] + request.url.bytes + [0x20] + http1_1
+        let signature = [UInt8](request.method.string.utf8) + [0x20] + request.path.bytes + [0x20] + http1_1
         
         var offset = signature.count
         memcpy(pointer, signature, offset)
