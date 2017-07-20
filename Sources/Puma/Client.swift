@@ -16,23 +16,23 @@ public enum HTTPClient {
 
 open class SyncHTTPClient {
     var future = Future<Response>()
-//    var responseProgoress = ResponsePlaceholder()
-    let client: TCPClient
+    var responseProgress = ResponsePlaceholder()
+    var client: TCPClient!
     let host: String
     
     public init(to host: String, port: UInt16 = 80) throws {
         self.host = host
         self.client = try TCPClient(hostname: host, port: port) { pointer, count in
-            var data = [UInt8](repeating: 0, count: count)
-            memcpy(&data, pointer, count)
-            
-            print(String(bytes: data, encoding: .utf8)!)
-//            responseProgress.parse(ptr, len: len)
-//
-//            if responseProgress.complete, let response = responseProgress.makeRequest() {
-//                future.complete { response }
-//                responseProgress.empty()
-//            }
+            self.responseProgress.parse(pointer, len: count)
+
+            if self.responseProgress.complete, let response = self.responseProgress.makeResponse() {
+                do {
+                    try self.future.complete { response }
+                } catch {
+                    print("Future was already completed. Please don't manually complete futures.")
+                }
+                self.responseProgress.empty()
+            }
         }
     }
     
