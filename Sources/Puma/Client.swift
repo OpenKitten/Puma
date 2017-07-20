@@ -36,7 +36,7 @@ open class SyncHTTPClient {
         }
     }
     
-    func send(_ request: Request, for timeout: Int = 30) throws -> Response {
+    public func send(_ request: Request, for timeout: Int = 30) throws -> Response {
         defer {
             future = Future<Response>()
         }
