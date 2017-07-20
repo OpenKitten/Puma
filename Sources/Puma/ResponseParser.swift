@@ -96,9 +96,9 @@ public class ResponsePlaceholder {
             }
             
             let httpCode: [UInt8] = [
-                ptr[httpOpening.count] &+ 3,
-                ptr[httpOpening.count] &+ 4,
-                ptr[httpOpening.count] &+ 5
+                ptr[httpOpening.count &+ 3],
+                ptr[httpOpening.count &+ 4],
+                ptr[httpOpening.count &+ 5]
             ]
             
             guard let codeString = String(bytes: httpCode, encoding: .utf8), let status = Int(codeString), ptr[httpOpening.count &+ 7] == 0x20 else {
