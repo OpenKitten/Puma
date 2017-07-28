@@ -30,10 +30,11 @@ class FutureHolder {
 open class SyncHTTPClient {
     var futureHolder: FutureHolder
     var client: TCPClient
+    public var cookies = Cookies()
     let host: String
-    let followRedirect: Bool
+    let followRedirect: Int
     
-    public init(to host: String, port: UInt16? = nil, ssl: Bool = false, followRedirect: Bool = true) throws {
+    public init(to host: String, port: UInt16? = nil, ssl: Bool = false, followRedirect: Int = 1) throws {
         self.host = host
         self.followRedirect = followRedirect
         
@@ -63,7 +64,7 @@ open class SyncHTTPClient {
         }
     }
     
-    public static func send(_ request: Request, to url: String) throws -> Response {
+    public static func send(_ request: Request, to url: String, followRedirect: Int = 1) throws -> Response {
         guard let url = URL(string: url) else {
             throw HTTPClient.Error.invalidHTTPURL
         }
@@ -84,25 +85,25 @@ open class SyncHTTPClient {
             throw HTTPClient.Error.invalidHTTPURL
         }
         
-        return try self.send(request, toHost: url.host ?? "127.0.0.1", atPort: UInt16(port), securely: ssl)
+        return try self.send(request, toHost: url.host ?? "127.0.0.1", atPort: UInt16(port), securely: ssl, followRedirect: followRedirect)
     }
     
-    public static func send(_ request: Request, toHost host: String, atPort port: UInt16? = nil, securely ssl: Bool = false, timeoutAfter timeout: Int = 30) throws -> Response {
+    public static func send(_ request: Request, toHost host: String, atPort port: UInt16? = nil, securely ssl: Bool = false, timeoutAfter timeout: Int = 30, followRedirect: Int = 3) throws -> Response {
         let client = try SyncHTTPClient(to: host, port: port, ssl: ssl)
         let response = try client.send(request, timeoutAfter: timeout)
         
-        guard response.status.code != 302 else {
-            guard let url = String(response.headers["Location"]) else {
+        guard response.status.code < 300 || response.status.code >= 400 else {
+            guard let url = String(response.headers["Location"]), followRedirect > 0 else {
                 return response
             }
             
-            return try SyncHTTPClient.send(request, to: url)
+            return try SyncHTTPClient.send(request, to: url, followRedirect: followRedirect - 1)
         }
         
         return response
     }
     
-    public func send(_ request: Request, timeoutAfter timeout: Int = 30) throws -> Response {
+    public func send(_ request: Request, timeoutAfter timeout: Int = 30, followRedirect: Int = 3) throws -> Response {
         defer {
             self.futureHolder.future = Future<Response>()
         }
@@ -111,6 +112,10 @@ open class SyncHTTPClient {
         
         try client.send(request)
         
-        return try self.futureHolder.future.await(for: .seconds(timeout))
+        let response = try self.futureHolder.future.await(for: .seconds(timeout))
+        
+        self.cookies += response.cookies
+        
+        return response
     }
 }
