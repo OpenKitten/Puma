@@ -17,6 +17,10 @@ public enum HTTPClient {
     public static func sync(to host: String, port: UInt16 = 80) throws -> SyncHTTPClient {
         return try SyncHTTPClient(to: host, port: port)
     }
+    
+    public enum Error : Swift.Error {
+        case invalidHTTPURL
+    }
 }
 
 class FutureHolder {
@@ -27,9 +31,11 @@ open class SyncHTTPClient {
     var futureHolder: FutureHolder
     var client: TCPClient
     let host: String
+    let followRedirect: Bool
     
-    public init(to host: String, port: UInt16? = nil, ssl: Bool = false) throws {
+    public init(to host: String, port: UInt16? = nil, ssl: Bool = false, followRedirect: Bool = true) throws {
         self.host = host
+        self.followRedirect = followRedirect
         
         var responseProgress = ResponsePlaceholder()
         var futureHolder = FutureHolder()
@@ -57,9 +63,43 @@ open class SyncHTTPClient {
         }
     }
     
+    public static func send(_ request: Request, to url: String) throws -> Response {
+        guard let url = URL(string: url) else {
+            throw HTTPClient.Error.invalidHTTPURL
+        }
+        
+        let ssl: Bool
+        
+        if url.scheme == "http" {
+            ssl = false
+        } else if url.scheme == "https" {
+            ssl = true
+        } else {
+            throw HTTPClient.Error.invalidHTTPURL
+        }
+        
+        let port = url.port ?? (ssl ? 443 : 80)
+        
+        guard port < Int(UInt16.max) else {
+            throw HTTPClient.Error.invalidHTTPURL
+        }
+        
+        return try self.send(request, toHost: url.host ?? "127.0.0.1", atPort: UInt16(port), securely: ssl)
+    }
+    
     public static func send(_ request: Request, toHost host: String, atPort port: UInt16? = nil, securely ssl: Bool = false, timeoutAfter timeout: Int = 30) throws -> Response {
         let client = try SyncHTTPClient(to: host, port: port, ssl: ssl)
-        return try client.send(request, timeoutAfter: timeout)
+        let response = try client.send(request, timeoutAfter: timeout)
+        
+        guard response.status.code != 302 else {
+            guard let url = String(response.headers["Location"]) else {
+                return response
+            }
+            
+            return try SyncHTTPClient.send(request, to: url)
+        }
+        
+        return response
     }
     
     public func send(_ request: Request, timeoutAfter timeout: Int = 30) throws -> Response {
