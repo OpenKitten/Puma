@@ -29,7 +29,7 @@ class FutureHolder {
 
 open class SyncHTTPClient {
     var futureHolder: FutureHolder
-    var client: TCPClient
+    var client: TCPClient!
     public var cookies = Cookies()
     let host: String
     let followRedirect: Int
@@ -41,12 +41,14 @@ open class SyncHTTPClient {
         var responseProgress = ResponsePlaceholder()
         var futureHolder = FutureHolder()
         
+        self.futureHolder = futureHolder
+        
         func onRead(pointer: UnsafePointer<UInt8>, count: Int) {
             responseProgress.parse(pointer, len: count)
             
             if responseProgress.complete, let response = responseProgress.makeResponse() {
                 do {
-                    try futureHolder.future.complete { response }
+                    try self.futureHolder.future.complete { response }
                 } catch {
                     print("The response future was already completed. Please don't manually complete futures.")
                 }
@@ -54,13 +56,14 @@ open class SyncHTTPClient {
             }
         }
         
-        self.futureHolder = futureHolder
-        
         if ssl {
             let client = try TCPSSLClient(hostname: host, port: port ?? 443, onRead: onRead)
+            try client.connect()
             self.client = client
         } else {
-            self.client = try TCPClient(hostname: host, port: port ?? 80, onRead: onRead)
+            let client = try TCPClient(hostname: host, port: port ?? 80, onRead: onRead)
+            try client.connect()
+            self.client = client
         }
     }
     
@@ -85,7 +88,7 @@ open class SyncHTTPClient {
             throw HTTPClient.Error.invalidHTTPURL
         }
         
-        return try self.send(request, toHost: url.host ?? "127.0.0.1", atPort: UInt16(port), securely: ssl, followRedirect: followRedirect)
+        return try SyncHTTPClient.send(request, toHost: url.host ?? "127.0.0.1", atPort: UInt16(port), securely: ssl, followRedirect: followRedirect)
     }
     
     public static func send(_ request: Request, toHost host: String, atPort port: UInt16? = nil, securely ssl: Bool = false, timeoutAfter timeout: Int = 30, followRedirect: Int = 3) throws -> Response {
@@ -96,6 +99,8 @@ open class SyncHTTPClient {
             guard let url = String(response.headers["Location"]), followRedirect > 0 else {
                 return response
             }
+            
+            request.cookies += client.cookies
             
             return try SyncHTTPClient.send(request, to: url, followRedirect: followRedirect - 1)
         }
